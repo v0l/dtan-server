@@ -1,16 +1,16 @@
 use anyhow::Result;
 use clap::Parser;
 use config::Config;
-use nostr_relay_builder::builder::{PolicyResult, WritePolicy};
+use log::error;
+use nostr_relay_builder::builder::{PolicyResult, QueryPolicy, WritePolicy};
 use nostr_relay_builder::prelude::Event;
 use nostr_relay_builder::{LocalRelay, RelayBuilder};
 use nostr_sdk::prelude::async_trait;
-use nostr_sdk::{Client, NostrLMDB};
+use nostr_sdk::{Client, Filter, Kind, NdbDatabase, Options, SubscribeOptions, SyncOptions};
 use serde::Deserialize;
 use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::Arc;
 
 #[derive(Parser, Debug)]
 #[command(about, version)]
@@ -31,13 +31,13 @@ pub struct Settings {
     pub relay_listen: Option<SocketAddr>,
 }
 
-#[derive(Debug)]
-struct AcceptKinds(HashSet<u16>);
+#[derive(Debug, Clone)]
+struct AcceptKinds(HashSet<Kind>);
 
 impl AcceptKinds {
     pub fn from<I>(input: I) -> Self
     where
-        I: Into<HashSet<u16>>,
+        I: Into<HashSet<Kind>>,
     {
         Self(input.into())
     }
@@ -46,8 +46,24 @@ impl AcceptKinds {
 #[async_trait]
 impl WritePolicy for AcceptKinds {
     async fn admit_event(&self, event: &Event, _addr: &SocketAddr) -> PolicyResult {
-        if !self.0.contains(&event.kind.as_u16()) {
+        if !self.0.contains(&event.kind) {
             PolicyResult::Reject("kind not accepted".to_string())
+        } else {
+            PolicyResult::Accept
+        }
+    }
+}
+
+#[async_trait]
+impl QueryPolicy for AcceptKinds {
+    async fn admit_query(&self, query: &[Filter], _addr: &SocketAddr) -> PolicyResult {
+        if !query.iter().all(|q| {
+            q.kinds
+                .as_ref()
+                .map(|k| k.iter().all(|v| self.0.contains(v)))
+                .unwrap_or(false)
+        }) {
+            PolicyResult::Reject("kind not supported".to_string())
         } else {
             PolicyResult::Accept
         }
@@ -67,26 +83,69 @@ async fn main() -> Result<()> {
         .build()?
         .try_deserialize()?;
 
-    let db = NostrLMDB::open(config.database_dir.unwrap_or(PathBuf::from("./data")))?;
-    let db = Arc::new(db);
+    let db = NdbDatabase::open(
+        config
+            .database_dir
+            .unwrap_or(PathBuf::from("./data"))
+            .to_str()
+            .unwrap(),
+    )?;
 
-    let client = Client::builder().database(db.clone()).build();
+    const KINDS: [Kind; 4] = [
+        Kind::Metadata,
+        Kind::RelayList,
+        Kind::Torrent,
+        Kind::TorrentComment,
+    ];
+
+    let client = Client::builder()
+        .database(db.clone())
+        .opts(Options::default())
+        .build();
+
     for relay in &config.relays {
         client.add_relay(relay).await?;
     }
     client.connect().await;
+    client
+        .pool()
+        .subscribe(
+            vec![Filter::new().kinds(KINDS.to_vec())],
+            SubscribeOptions::default().close_on(None),
+        )
+        .await?;
 
+    // re-sync with bootstrap relays
+    let client_sync = client.clone();
+    let sync_kinds = KINDS[1..].to_vec();
+    tokio::spawn(async move {
+        if let Err(e) = client_sync
+            .sync(Filter::new().kinds(sync_kinds), &SyncOptions::default())
+            .await
+        {
+            error!("{}", e);
+        }
+    });
+
+    let policy = AcceptKinds::from(KINDS);
     let addr = config
         .relay_listen
-        .unwrap_or(SocketAddr::new([0, 0, 0, 0].into(), 8000));
+        .unwrap_or(SocketAddr::new([127, 0, 0, 1].into(), 8000));
     let relay = RelayBuilder::default()
         .database(db.clone())
         .addr(addr.ip())
         .port(addr.port())
-        .write_policy(AcceptKinds::from([0, 2003, 2004]));
+        .write_policy(policy.clone())
+        .query_policy(policy);
 
-    LocalRelay::run(relay).await?;
+    let relay = LocalRelay::run(relay).await?;
 
-    // start scraper
+    tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?
+        .recv()
+        .await
+        .expect("failed to listen to shutdown signal");
+
+    relay.shutdown();
+
     Ok(())
 }
