@@ -2,12 +2,13 @@ use crate::{DEFAULT_RELAY_PORT, Settings};
 use anyhow::Result;
 use log::{debug, error, info, warn};
 use mainline::{Dht, Id, ServerSettings};
-use nostr_sdk::Client;
+use nostr_sdk::{Client, RelayUrl};
 use portmapper::ProbeOutput;
 use sha1::Digest;
 use std::collections::HashSet;
-use std::net::{IpAddr, SocketAddrV4};
+use std::net::{IpAddr, SocketAddr, SocketAddrV4};
 use std::num::NonZeroU16;
+use tokio::sync::RwLock;
 
 /// Manage connected relays automatically via relay discovery and DHT
 pub struct PeerManager {
@@ -109,10 +110,19 @@ impl PeerManager {
         let peers = self.dht.get_peers(self.info_hash);
         let peers: HashSet<SocketAddrV4> = peers.into_iter().flat_map(|v| v).collect();
 
-        info!("DHT peers: {:?}", peers);
-
-        // TODO: connect peers
-
+        /// TODO: rank peers
+        let my_id = self.dht.info().public_address();
+        let peer_relays = peers
+            .iter()
+            .filter(|a| Some(a.ip()) != my_id.as_ref().map(|b| b.ip()))
+            .filter_map(|a| RelayUrl::parse(&format!("ws://{}", a)).ok())
+            .collect::<Vec<_>>();
+        for peer in peer_relays {
+            if self.client.add_relay(&peer).await? {
+                info!("Connecting to DTAN peer: {}", peer);
+            }
+        }
+        self.client.connect().await;
         Ok(())
     }
 }
