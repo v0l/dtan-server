@@ -9,9 +9,11 @@ use log::{debug, error, info};
 use nostr_relay_builder::builder::{PolicyResult, WritePolicy};
 use nostr_relay_builder::prelude::Event;
 use nostr_relay_builder::{LocalRelay, RelayBuilder};
+use nostr_sdk::pool::RelayLimits;
 use nostr_sdk::prelude::{BoxedFuture, SyncProgress};
 use nostr_sdk::{
-    Client, Filter, Kind, NdbDatabase, RelayPoolNotification, SubscribeOptions, SyncOptions,
+    Client, ClientOptions, Filter, Kind, NdbDatabase, RelayPoolNotification, SubscribeOptions,
+    SyncOptions, Timestamp,
 };
 use serde::Deserialize;
 use std::collections::HashSet;
@@ -96,7 +98,16 @@ async fn main() -> Result<()> {
 
     const KINDS: [Kind; 2] = [Kind::Torrent, Kind::TorrentComment];
 
-    let client = Client::builder().database(db.clone()).build();
+    let mut relay_limits = RelayLimits::default();
+    relay_limits
+        .events
+        .max_num_tags_per_kind
+        .insert(Kind::Torrent, Some(10_000)); // allow torrents to have 10k tags
+
+    let client = Client::builder()
+        .opts(ClientOptions::new().relay_limits(relay_limits))
+        .database(db.clone())
+        .build();
 
     for relay in &config.relays {
         info!("Connecting to {}", relay);
@@ -107,7 +118,10 @@ async fn main() -> Result<()> {
     client.connect().await;
     client
         .pool()
-        .subscribe(filter.clone(), SubscribeOptions::default())
+        .subscribe(
+            filter.clone().limit(10),
+            SubscribeOptions::default(),
+        )
         .await?;
 
     // re-sync with bootstrap relays
