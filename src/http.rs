@@ -86,7 +86,7 @@ impl Service<Request<Incoming>> for HttpServer {
         }
 
         // map request to ui dir
-        let dst = self.ui_dir.join(&req.uri().path());
+        let dst = self.ui_dir.join(&req.uri().path()[1..]);
         if dst.exists() {
             return Box::pin(async move {
                 if let Ok(data) = tokio::fs::read(&dst).await {

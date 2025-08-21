@@ -13,6 +13,6 @@ RUN cargo install --path . --root /app/build
 FROM $IMAGE AS runner
 WORKDIR /app
 COPY --from=build /app/build .
-COPY --from=ui_builder /src/dtan/dist ui_src
+COPY --from=ui_builder /src/dtan/dist www
 ENV RUST_LOG=info
 ENTRYPOINT ["./bin/dtan-server"]

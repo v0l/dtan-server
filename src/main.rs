@@ -177,7 +177,7 @@ async fn main() -> Result<()> {
         let (socket, addr) = listener.accept().await?;
         debug!("New connection from {}", addr);
         let io = TokioIo::new(socket);
-        let server = HttpServer::new(relay.clone(), addr, PathBuf::from(""));
+        let server = HttpServer::new(relay.clone(), addr, PathBuf::from("www"));
         tokio::spawn(async move {
             if let Err(e) = http1::Builder::new()
                 .serve_connection(io, server)
