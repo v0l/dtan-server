@@ -69,7 +69,10 @@ impl WritePolicy for AcceptKinds {
         if !self.0.contains(&event.kind) {
             Box::pin(async move { PolicyResult::Reject("kind not accepted".to_string()) })
         } else {
-            Box::pin(async move { PolicyResult::Accept })
+            info!("New torrent event: {}", event.id);
+            Box::pin(async move {
+                PolicyResult::Accept
+            })
         }
     }
 }
@@ -118,10 +121,7 @@ async fn main() -> Result<()> {
     client.connect().await;
     client
         .pool()
-        .subscribe(
-            filter.clone().limit(10),
-            SubscribeOptions::default(),
-        )
+        .subscribe(filter.clone().limit(10), SubscribeOptions::default())
         .await?;
 
     // re-sync with bootstrap relays
