@@ -1,6 +1,6 @@
 use crate::{DEFAULT_RELAY_PORT, Settings};
 use anyhow::Result;
-use log::{error, info};
+use log::{debug, error, info};
 use mainline::{Dht, Id};
 use nostr_sdk::Client;
 use portmapper::ProbeOutput;
@@ -52,41 +52,54 @@ impl PeerManager {
             .unwrap_or(DEFAULT_RELAY_PORT);
 
         // probe services
-        match self.portmapper.probe().await? {
+        let has_service = match self.portmapper.probe().await? {
             Ok(probe) => {
-                info!("Probe result: {:?}", probe);
+                debug!("Probe result: {:?}", probe);
+                probe.nat_pmp || probe.upnp || probe.pcp
             }
             Err(e) => {
                 error!("Probe error: {:?}", e);
+                false
             }
-        }
+        };
 
-        self.portmapper
-            .update_local_port(NonZeroU16::new(local_port).unwrap());
+        if has_service {
+            debug!("Probe successful, starting portmapper...");
+            self.portmapper
+                .update_local_port(NonZeroU16::new(local_port).unwrap());
 
-        // spawn listener for external port mapping
-        let mut addr_rx = self.portmapper.watch_external_address();
-        let dht_clone = self.dht.clone();
-        let id_clone = self.info_hash.clone();
-        tokio::spawn(async move {
-            while let Ok(_) = addr_rx.changed().await {
-                if let Some(external_address) = *addr_rx.borrow() {
-                    info!("Port mapping added for: {}", external_address);
+            // spawn listener for external port mapping
+            let mut addr_rx = self.portmapper.watch_external_address();
+            let dht_clone = self.dht.clone();
+            let id_clone = self.info_hash.clone();
+            tokio::spawn(async move {
+                while let Ok(_) = addr_rx.changed().await {
+                    if let Some(external_address) = *addr_rx.borrow() {
+                        info!("Port mapping added for: {}", external_address);
 
-                    info!(
-                        "Announcing port {} for {}",
-                        external_address.port(),
-                        id_clone
-                    );
-                    if let Err(e) = dht_clone.announce_peer(id_clone, Some(external_address.port()))
-                    {
-                        error!("Failed to announce peer: {}", e);
+                        info!(
+                            "Announcing port {} for {}",
+                            external_address.port(),
+                            id_clone
+                        );
+                        if let Err(e) =
+                            dht_clone.announce_peer(id_clone, Some(external_address.port()))
+                        {
+                            error!("Failed to announce peer: {}", e);
+                        }
                     }
                 }
-            }
-        });
+            });
 
-        self.portmapper.procure_mapping();
+            // TODO: timeout if no port mapping and fallback to announce local_port
+
+            self.portmapper.procure_mapping();
+        } else {
+            info!("Announcing port {} for {}", local_port, self.info_hash);
+            if let Err(e) = self.dht.announce_peer(self.info_hash, Some(local_port)) {
+                error!("Failed to announce peer: {}", e);
+            }
+        }
         Ok(())
     }
 
