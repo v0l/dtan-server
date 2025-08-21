@@ -47,7 +47,7 @@ impl PeerManager {
         info!("Starting peer manager...");
         let local_port = self
             .settings
-            .relay_listen
+            .listen
             .map(|a| a.port())
             .unwrap_or(DEFAULT_RELAY_PORT);
 

@@ -1,12 +1,12 @@
 # Location where the relay will store its data
 database_dir: "./data"
 
+# Listen address of dtan relay
+listen: "0.0.0.0:8000"
+
 # Bootstrap relays to discover content
 relays:
   - "wss://relay.damus.io"
   - "wss://nos.lol"
   - "wss://relay.nostr.band"
   - "wss://relay.snort.social"
-
-# Listen address of dtan relay
-relay_listen: "0.0.0.0:8000"

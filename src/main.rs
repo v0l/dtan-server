@@ -41,7 +41,7 @@ pub struct Settings {
     pub relays: Vec<String>,
 
     /// Listen addr for relay
-    pub relay_listen: Option<SocketAddr>,
+    pub listen: Option<SocketAddr>,
 }
 
 #[derive(Debug, Clone)]
@@ -128,7 +128,7 @@ async fn main() -> Result<()> {
 
     let policy = AcceptKinds::from(KINDS);
     let addr = config
-        .relay_listen
+        .listen
         .clone()
         .unwrap_or(SocketAddr::new([127, 0, 0, 1].into(), DEFAULT_RELAY_PORT));
     let relay = RelayBuilder::default()
