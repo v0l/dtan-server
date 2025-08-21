@@ -45,6 +45,9 @@ pub struct Settings {
 
     /// Explicit announcement address
     pub dht_public_ip: Option<Ipv4Addr>,
+
+    /// Path to UI
+    pub web_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone)]
@@ -177,7 +180,11 @@ async fn main() -> Result<()> {
         let (socket, addr) = listener.accept().await?;
         debug!("New connection from {}", addr);
         let io = TokioIo::new(socket);
-        let server = HttpServer::new(relay.clone(), addr, PathBuf::from("www"));
+        let server = HttpServer::new(
+            relay.clone(),
+            addr,
+            config.web_dir.clone().unwrap_or(PathBuf::from("www")),
+        );
         tokio::spawn(async move {
             if let Err(e) = http1::Builder::new()
                 .serve_connection(io, server)

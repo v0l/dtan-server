@@ -3,7 +3,7 @@ ARG IMAGE=rust:bookworm
 FROM node:bookworm AS ui_builder
 WORKDIR /src
 RUN git clone https://github.com/v0l/dtan.git && \
-    cd dtan && yarn && yarn build
+    cd dtan && yarn && VITE_DTAN_SERVER=1 yarn build
 
 FROM $IMAGE AS build
 WORKDIR /src

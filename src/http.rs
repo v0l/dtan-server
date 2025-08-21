@@ -5,7 +5,7 @@ use hyper::header::{CONNECTION, SEC_WEBSOCKET_ACCEPT, UPGRADE};
 use hyper::service::Service;
 use hyper::{Request, Response};
 use hyper_util::rt::TokioIo;
-use log::error;
+use log::{error, info};
 use nostr_relay_builder::LocalRelay;
 use sha1::{Digest, Sha1};
 use std::future::Future;
@@ -86,18 +86,30 @@ impl Service<Request<Incoming>> for HttpServer {
         }
 
         // map request to ui dir
-        let dst = self.ui_dir.join(&req.uri().path()[1..]);
+        let mut web_path = req.uri().path().clone();
+        if web_path == "/" {
+            web_path = "/index.html";
+        }
+        let dst = self.ui_dir.join(&web_path[1..]);
         if dst.exists() {
+            let remote_addr = self.remote.clone();
             return Box::pin(async move {
                 if let Ok(data) = tokio::fs::read(&dst).await {
+                    let ct = match dst.extension().and_then(|s| s.to_str()) {
+                        Some("css") => "text/css",
+                        Some("html") => "text/html",
+                        Some("js") => "text/javascript",
+                        _ => "application/octet-stream",
+                    };
+                    info!(
+                        "[{}] {} 200 {} {}",
+                        remote_addr,
+                        dst.display(),
+                        data.len(),
+                        ct
+                    );
                     base.status(200)
-                        .header(
-                            "content-type",
-                            infer::get_from_path(&dst)
-                                .unwrap()
-                                .map(|t| t.mime_type())
-                                .unwrap_or("application/octet-stream"),
-                        )
+                        .header("content-type", ct)
                         .body(http_body_util::Full::new(Bytes::from_owner(data)))
                         .map_err(anyhow::Error::from)
                 } else {

@@ -11,5 +11,8 @@ relays:
   - "wss://relay.nostr.band"
   - "wss://relay.snort.social"
 
-# Explicitly set your public IP for DHT
+# Explicitly set your public IP for DHT (default NAT-PMP / Main public IP)
 dht_public_ip: "140.140.140.140"
+
+# Path to DTAN web site build (default www dir)
+web_dir: "../dtan/dist"
