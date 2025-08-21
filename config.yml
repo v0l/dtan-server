@@ -10,3 +10,6 @@ relays:
   - "wss://nos.lol"
   - "wss://relay.nostr.band"
   - "wss://relay.snort.social"
+
+# Explicitly set your public IP for DHT
+dht_public_ip: "140.140.140.140"

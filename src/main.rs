@@ -15,7 +15,7 @@ use nostr_sdk::{
 };
 use serde::Deserialize;
 use std::collections::HashSet;
-use std::net::SocketAddr;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
@@ -42,6 +42,9 @@ pub struct Settings {
 
     /// Listen addr for relay
     pub listen: Option<SocketAddr>,
+
+    /// Explicit announcement address
+    pub dht_public_ip: Option<Ipv4Addr>,
 }
 
 #[derive(Debug, Clone)]
@@ -153,7 +156,7 @@ async fn main() -> Result<()> {
     });
 
     // spawn peer manager
-    let mut peer_manager = PeerManager::new(client.clone(), config.clone());
+    let mut peer_manager = PeerManager::new(client.clone(), config.clone())?;
     let _: JoinHandle<Result<()>> = tokio::spawn(async move {
         peer_manager.start().await?;
 

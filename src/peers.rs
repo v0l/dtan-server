@@ -1,12 +1,12 @@
 use crate::{DEFAULT_RELAY_PORT, Settings};
 use anyhow::Result;
-use log::{debug, error, info};
-use mainline::{Dht, Id};
+use log::{debug, error, info, warn};
+use mainline::{Dht, Id, ServerSettings};
 use nostr_sdk::Client;
 use portmapper::ProbeOutput;
 use sha1::Digest;
 use std::collections::HashSet;
-use std::net::SocketAddrV4;
+use std::net::{IpAddr, SocketAddrV4};
 use std::num::NonZeroU16;
 
 /// Manage connected relays automatically via relay discovery and DHT
@@ -24,22 +24,24 @@ pub struct PeerManager {
 }
 
 impl PeerManager {
-    pub fn new(client: Client, settings: Settings) -> Self {
-        let digest: [u8; 20] = sha1::Sha1::digest("nostr:2003")
-            .as_slice()
-            .try_into()
-            .unwrap();
+    pub fn new(client: Client, settings: Settings) -> Result<Self> {
+        let digest: [u8; 20] = sha1::Sha1::digest("nostr:2003").as_slice().try_into()?;
 
         let mut pm_config = portmapper::Config::default();
         pm_config.protocol = portmapper::Protocol::Tcp;
 
-        Self {
+        let mut dht = Dht::builder();
+        if let Some(a) = &settings.dht_public_ip {
+            dht.public_ip(*a);
+        }
+
+        Ok(Self {
             client,
             settings,
-            dht: Dht::client().unwrap(),
+            dht: dht.build()?,
             portmapper: portmapper::Client::new(pm_config),
             info_hash: Id::from(digest),
-        }
+        })
     }
 
     /// Start peer manager by creating a port mapping and advertising it to DHT
