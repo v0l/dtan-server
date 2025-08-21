@@ -99,6 +99,13 @@ impl Service<Request<Incoming>> for HttpServer {
                         Some("css") => "text/css",
                         Some("html") => "text/html",
                         Some("js") => "text/javascript",
+                        Some("mjs") => "text/javascript",
+                        Some("jpg") => "image/jpeg",
+                        Some("png") => "image/png",
+                        Some("svg") => "image/svg+xml",
+                        Some("json") => "application/json",
+                        Some(".wasm") => "application/wasm",
+                        Some("woff2") => "application/woff",
                         _ => "application/octet-stream",
                     };
                     info!(
