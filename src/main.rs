@@ -192,7 +192,7 @@ async fn main() -> Result<()> {
                 error!("Peer manager error: {}", e);
                 break;
             }
-            tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+            tokio::time::sleep(tokio::time::Duration::from_secs(60 * 5)).await;
         }
         Ok(())
     });
