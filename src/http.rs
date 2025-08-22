@@ -86,7 +86,7 @@ impl Service<Request<Incoming>> for HttpServer {
         }
 
         // map request to ui dir
-        let mut web_path = req.uri().path().clone();
+        let mut web_path = req.uri().path();
         if web_path == "/" {
             web_path = "/index.html";
         }

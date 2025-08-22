@@ -13,7 +13,7 @@ use nostr_sdk::pool::RelayLimits;
 use nostr_sdk::prelude::{BoxedFuture, SyncProgress};
 use nostr_sdk::{
     Client, ClientOptions, Filter, Kind, NdbDatabase, RelayPoolNotification, SubscribeOptions,
-    SyncOptions, Timestamp,
+    SyncOptions,
 };
 use serde::Deserialize;
 use std::collections::HashSet;
@@ -65,7 +65,7 @@ impl AcceptKinds {
 }
 
 impl WritePolicy for AcceptKinds {
-    fn admit_event(&self, event: &Event, _addr: &SocketAddr) -> BoxedFuture<PolicyResult> {
+    fn admit_event(&self, event: &Event, _addr: &SocketAddr) -> BoxedFuture<'_, PolicyResult> {
         if !self.0.contains(&event.kind) {
             Box::pin(async move { PolicyResult::Reject("kind not accepted".to_string()) })
         } else {
@@ -166,7 +166,7 @@ async fn main() -> Result<()> {
                 RelayPoolNotification::Event { event, .. } => {
                     relay_notify.notify_event(*event);
                 }
-                RelayPoolNotification::Message { message, relay_url } => match message {
+                RelayPoolNotification::Message { message, .. } => match message {
                     RelayMessage::Event { .. } => {}
                     RelayMessage::Ok { .. } => {}
                     RelayMessage::EndOfStoredEvents(_) => {}
