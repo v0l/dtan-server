@@ -87,10 +87,11 @@ impl Service<Request<Incoming>> for HttpServer {
 
         // map request to ui dir
         let mut web_path = req.uri().path();
-        if web_path == "/" {
-            web_path = "/index.html";
-        }
-        let dst = self.ui_dir.join(&web_path[1..]);
+        let dst = if web_path.is_empty() || web_path == "/" {
+            self.ui_dir.join("index.html")
+        } else {
+            self.ui_dir.join(&web_path[1..])
+        };
         if dst.exists() {
             let remote_addr = self.remote.clone();
             return Box::pin(async move {
