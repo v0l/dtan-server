@@ -7,7 +7,7 @@ use hyper::server::conn::http1;
 use hyper_util::rt::TokioIo;
 use log::{debug, error, info};
 use nostr_relay_builder::builder::{PolicyResult, WritePolicy};
-use nostr_relay_builder::prelude::Event;
+use nostr_relay_builder::prelude::{Event, RelayMessage};
 use nostr_relay_builder::{LocalRelay, RelayBuilder};
 use nostr_sdk::pool::RelayLimits;
 use nostr_sdk::prelude::{BoxedFuture, SyncProgress};
@@ -70,9 +70,7 @@ impl WritePolicy for AcceptKinds {
             Box::pin(async move { PolicyResult::Reject("kind not accepted".to_string()) })
         } else {
             info!("New torrent event: {}", event.id);
-            Box::pin(async move {
-                PolicyResult::Accept
-            })
+            Box::pin(async move { PolicyResult::Accept })
         }
     }
 }
@@ -126,6 +124,7 @@ async fn main() -> Result<()> {
 
     // re-sync with bootstrap relays
     let client_sync = client.clone();
+    let filter_sync = filter.clone();
     tokio::spawn(async move {
         let (tx, mut rx) = SyncProgress::channel();
         tokio::spawn(async move {
@@ -139,9 +138,9 @@ async fn main() -> Result<()> {
                 );
             }
         });
-        info!("Starting sync: {:?}", &filter);
+        info!("Starting sync: {:?}", &filter_sync);
         let opts = SyncOptions::default().progress(tx);
-        if let Err(e) = client_sync.sync(filter, &opts).await {
+        if let Err(e) = client_sync.sync(filter_sync, &opts).await {
             error!("{}", e);
         }
     });
@@ -167,13 +166,24 @@ async fn main() -> Result<()> {
                 RelayPoolNotification::Event { event, .. } => {
                     relay_notify.notify_event(*event);
                 }
-                _ => {}
+                RelayPoolNotification::Message { message, relay_url } => match message {
+                    RelayMessage::Event { .. } => {}
+                    RelayMessage::Ok { .. } => {}
+                    RelayMessage::EndOfStoredEvents(_) => {}
+                    RelayMessage::Notice(_) => {}
+                    RelayMessage::Closed { .. } => {}
+                    RelayMessage::Auth { .. } => {}
+                    RelayMessage::Count { .. } => {}
+                    RelayMessage::NegMsg { .. } => {}
+                    RelayMessage::NegErr { .. } => {}
+                },
+                RelayPoolNotification::Shutdown => {}
             }
         }
     });
 
     // spawn peer manager
-    let mut peer_manager = PeerManager::new(client.clone(), config.clone())?;
+    let mut peer_manager = PeerManager::new(filter.clone(), client.clone(), config.clone())?;
     let _: JoinHandle<Result<()>> = tokio::spawn(async move {
         peer_manager.start().await?;
 

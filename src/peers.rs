@@ -2,7 +2,7 @@ use crate::{DEFAULT_RELAY_PORT, Settings};
 use anyhow::Result;
 use log::{debug, error, info, warn};
 use mainline::{Dht, Id, ServerSettings};
-use nostr_sdk::{Client, RelayUrl};
+use nostr_sdk::{Client, Filter, RelayUrl, SyncOptions};
 use portmapper::ProbeOutput;
 use sha1::Digest;
 use std::collections::HashSet;
@@ -12,6 +12,8 @@ use tokio::sync::RwLock;
 
 /// Manage connected relays automatically via relay discovery and DHT
 pub struct PeerManager {
+    /// The main filter
+    filter: Filter,
     /// Nostr client to add/remove relay connections
     client: Client,
     /// DHT peer discovery
@@ -25,7 +27,7 @@ pub struct PeerManager {
 }
 
 impl PeerManager {
-    pub fn new(client: Client, settings: Settings) -> Result<Self> {
+    pub fn new(filter: Filter, client: Client, settings: Settings) -> Result<Self> {
         let digest: [u8; 20] = sha1::Sha1::digest("nostr:2003").as_slice().try_into()?;
 
         let mut pm_config = portmapper::Config::default();
@@ -37,6 +39,7 @@ impl PeerManager {
         }
 
         Ok(Self {
+            filter,
             client,
             settings,
             dht: dht.build()?,
@@ -117,12 +120,26 @@ impl PeerManager {
             .filter(|a| Some(a.ip()) != my_id.as_ref().map(|b| b.ip()))
             .filter_map(|a| RelayUrl::parse(&format!("ws://{}", a)).ok())
             .collect::<Vec<_>>();
+
+        let mut sync_new = Vec::new();
         for peer in peer_relays {
             if self.client.add_relay(&peer).await? {
                 info!("Connecting to DTAN peer: {}", peer);
+                sync_new.push(peer);
             }
         }
         self.client.connect().await;
+
+        // start sync with new peers
+        let client_sync = self.client.clone();
+        let filter_sync = self.filter.clone();
+        tokio::spawn(async move {
+            let opts = SyncOptions::default();
+            if let Err(e) = client_sync.sync_with(sync_new, filter_sync, &opts).await {
+                warn!("Failed to sync: {}", e);
+            }
+        });
+
         Ok(())
     }
 }
