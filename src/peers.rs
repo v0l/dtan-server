@@ -122,6 +122,7 @@ impl PeerManager {
         self.announce_peer().await?;
         let peers = self.dht.get_peers(self.info_hash);
         let peers: HashSet<SocketAddrV4> = peers.into_iter().flat_map(|v| v).collect();
+        info!("Total DHT peers: {}", peers.len());
 
         // TODO: rank peers
         let my_id = self.dht.info().public_address();

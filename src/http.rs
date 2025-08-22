@@ -86,7 +86,7 @@ impl Service<Request<Incoming>> for HttpServer {
         }
 
         // map request to ui dir
-        let mut web_path = req.uri().path();
+        let web_path = req.uri().path();
         let dst = if web_path.is_empty() || web_path == "/" {
             self.ui_dir.join("index.html")
         } else {
