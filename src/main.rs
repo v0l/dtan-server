@@ -5,7 +5,7 @@ use clap::Parser;
 use config::Config;
 use hyper::server::conn::http1;
 use hyper_util::rt::TokioIo;
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use nostr_relay_builder::builder::{PolicyResult, WritePolicy};
 use nostr_relay_builder::prelude::{Event, RelayMessage};
 use nostr_relay_builder::{LocalRelay, RelayBuilder};
@@ -228,7 +228,10 @@ async fn main() -> Result<()> {
         while let Ok(msg) = client_notification.notifications().recv().await {
             match msg {
                 RelayPoolNotification::Event { event, .. } => {
-                    relay_notify.notify_event(*event);
+                    relay_notify.notify_event((*event).clone());
+                    if let Err(e) = client_notification.send_event(&*event).await {
+                        warn!("Error sending event: {:?}", e);
+                    }
                 }
                 RelayPoolNotification::Message { message, .. } => match message {
                     RelayMessage::Event { .. } => {}
