@@ -12,8 +12,8 @@ use nostr_relay_builder::{LocalRelay, RelayBuilder};
 use nostr_sdk::pool::RelayLimits;
 use nostr_sdk::prelude::{BoxedFuture, NostrDatabase, SyncProgress};
 use nostr_sdk::{
-    Client, ClientOptions, Filter, Kind, NdbDatabase, RelayPoolNotification, SingleLetterTag,
-    SubscribeOptions, SyncOptions, TagKind,
+    Alphabet, Client, ClientOptions, Filter, Kind, NdbDatabase, RelayPoolNotification,
+    SingleLetterTag, SubscribeOptions, SyncOptions, TagKind,
 };
 use serde::Deserialize;
 use std::borrow::Cow;
@@ -23,12 +23,8 @@ use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
-const KINDS: [Kind; 4] = [
-    Kind::Torrent,
-    Kind::TorrentComment,
-    Kind::Comment,
-    Kind::ZapReceipt,
-];
+const KINDS: [Kind; 2] = [Kind::Torrent, Kind::TorrentComment];
+const KINDS_PLUS_K: [Kind; 2] = [Kind::Comment, Kind::ZapReceipt];
 
 mod http;
 mod peers;
@@ -88,7 +84,7 @@ impl WritePolicy for TorrentPolicy {
         _addr: &SocketAddr,
     ) -> BoxedFuture<'a, PolicyResult> {
         Box::pin(async move {
-            if !KINDS.contains(&event.kind) {
+            if !KINDS.contains(&event.kind) && !KINDS_PLUS_K.contains(&event.kind) {
                 PolicyResult::Reject("kind not accepted".to_string())
             } else {
                 // check for duplicate by info_hash
@@ -177,9 +173,19 @@ async fn main() -> Result<()> {
         .subscribe(filter.clone().limit(10), SubscribeOptions::default())
         .await?;
 
+    let filter_k = Filter::new().kinds(KINDS_PLUS_K).custom_tag(
+        SingleLetterTag::uppercase(Alphabet::K),
+        Kind::Torrent.to_string(),
+    );
+    client
+        .pool()
+        .subscribe(filter_k.clone().limit(10), SubscribeOptions::default())
+        .await?;
+
     // re-sync with bootstrap relays
     let client_sync = client.clone();
     let filter_sync = filter.clone();
+    let filter_k_sync = filter.clone();
     tokio::spawn(async move {
         let (tx, mut rx) = SyncProgress::channel();
         tokio::spawn(async move {
@@ -196,6 +202,9 @@ async fn main() -> Result<()> {
         info!("Starting sync: {:?}", &filter_sync);
         let opts = SyncOptions::default().progress(tx);
         if let Err(e) = client_sync.sync(filter_sync, &opts).await {
+            error!("{}", e);
+        }
+        if let Err(e) = client_sync.sync(filter_k_sync, &opts).await {
             error!("{}", e);
         }
     });
