@@ -10,7 +10,7 @@ use nostr_relay_builder::builder::{PolicyResult, WritePolicy};
 use nostr_relay_builder::prelude::{Event, RelayMessage};
 use nostr_relay_builder::{LocalRelay, RelayBuilder};
 use nostr_sdk::pool::RelayLimits;
-use nostr_sdk::prelude::{BoxedFuture, SyncProgress};
+use nostr_sdk::prelude::{BoxedFuture, NostrDatabase, SyncProgress};
 use nostr_sdk::{
     Client, ClientOptions, Filter, Kind, NdbDatabase, RelayPoolNotification, SubscribeOptions,
     SyncOptions,
@@ -19,6 +19,7 @@ use serde::Deserialize;
 use std::collections::HashSet;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
+use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
@@ -88,7 +89,7 @@ async fn main() -> Result<()> {
         .build()?
         .try_deserialize()?;
 
-    let db = NdbDatabase::open(
+    let ndb = NdbDatabase::open(
         config
             .database_dir
             .clone()
@@ -96,6 +97,15 @@ async fn main() -> Result<()> {
             .to_str()
             .unwrap(),
     )?;
+
+    // loop until NDB ready
+    loop {
+        if ndb.query(Filter::new().limit(1)).await.is_ok() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        info!("Waiting for NDB query...");
+    }
 
     const KINDS: [Kind; 2] = [Kind::Torrent, Kind::TorrentComment];
 
@@ -107,7 +117,7 @@ async fn main() -> Result<()> {
 
     let client = Client::builder()
         .opts(ClientOptions::new().relay_limits(relay_limits))
-        .database(db.clone())
+        .database(ndb.clone())
         .build();
 
     for relay in &config.relays {
@@ -151,7 +161,7 @@ async fn main() -> Result<()> {
         .clone()
         .unwrap_or(SocketAddr::new([127, 0, 0, 1].into(), DEFAULT_RELAY_PORT));
     let relay = RelayBuilder::default()
-        .database(db.clone())
+        .database(ndb.clone())
         .addr(addr.ip())
         .port(addr.port())
         .write_policy(policy);

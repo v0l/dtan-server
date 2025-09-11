@@ -13,7 +13,6 @@ tokio = { version = "1.42.0", features = ["rt", "rt-multi-thread", "macros", "fs
 clap = { version = "4.5.23", features = ["derive"] }
 anyhow = "1.0.95"
 serde = { version = "1.0.216", features = ["derive"] }
-nostrdb = { git = "https://github.com/damus-io/nostrdb-rs", rev = "2b2e5e43c019b80b98f1db6a03a1b88ca699bfa3" }
 
 hyper = { version = "1.7.0", features = ["server", "http1", "http2"] }
 hyper-util = { version = "0.1.16", features = ["tokio", "http2"] }
