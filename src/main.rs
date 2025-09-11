@@ -12,16 +12,23 @@ use nostr_relay_builder::{LocalRelay, RelayBuilder};
 use nostr_sdk::pool::RelayLimits;
 use nostr_sdk::prelude::{BoxedFuture, NostrDatabase, SyncProgress};
 use nostr_sdk::{
-    Client, ClientOptions, Filter, Kind, NdbDatabase, RelayPoolNotification, SubscribeOptions,
-    SyncOptions,
+    Client, ClientOptions, Filter, Kind, NdbDatabase, RelayPoolNotification, SingleLetterTag,
+    SubscribeOptions, SyncOptions, TagKind,
 };
 use serde::Deserialize;
-use std::collections::HashSet;
+use std::borrow::Cow;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
+
+const KINDS: [Kind; 4] = [
+    Kind::Torrent,
+    Kind::TorrentComment,
+    Kind::Comment,
+    Kind::ZapReceipt,
+];
 
 mod http;
 mod peers;
@@ -51,28 +58,61 @@ pub struct Settings {
 
     /// Path to UI
     pub web_dir: Option<PathBuf>,
+
+    /// Enable DHT system for peer connections
+    pub use_dht: Option<bool>,
 }
 
 #[derive(Debug, Clone)]
-struct AcceptKinds(HashSet<Kind>);
+struct TorrentPolicy {
+    db: NdbDatabase,
+}
 
-impl AcceptKinds {
-    pub fn from<I>(input: I) -> Self
-    where
-        I: Into<HashSet<Kind>>,
-    {
-        Self(input.into())
+impl TorrentPolicy {
+    pub fn new(db: NdbDatabase) -> Self {
+        Self { db }
     }
 }
 
-impl WritePolicy for AcceptKinds {
-    fn admit_event(&self, event: &Event, _addr: &SocketAddr) -> BoxedFuture<'_, PolicyResult> {
-        if !self.0.contains(&event.kind) {
-            Box::pin(async move { PolicyResult::Reject("kind not accepted".to_string()) })
-        } else {
-            info!("New torrent event: {}", event.id);
-            Box::pin(async move { PolicyResult::Accept })
-        }
+impl WritePolicy for TorrentPolicy {
+    fn admit_event<'a>(
+        &'a self,
+        event: &'a Event,
+        _addr: &SocketAddr,
+    ) -> BoxedFuture<'a, PolicyResult> {
+        Box::pin(async move {
+            if !KINDS.contains(&event.kind) {
+                PolicyResult::Reject("kind not accepted".to_string())
+            } else {
+                // check for duplicate by info_hash
+                if event.kind == Kind::Torrent {
+                    let info_hash = match event.tags.find(TagKind::Custom(Cow::Borrowed("x"))) {
+                        Some(info_hash) if info_hash.content().is_some() => {
+                            info_hash.content().unwrap()
+                        }
+                        _ => return PolicyResult::Reject("Missing 'x' tag".to_string()),
+                    };
+                    let f_info_hash = Filter::new()
+                        .kind(Kind::Torrent)
+                        .custom_tag(SingleLetterTag::from_char('x').unwrap(), info_hash);
+                    let exists = match self.db.query(f_info_hash).await {
+                        Ok(exists) => !exists.is_empty(), // TODO: actually check if the event is the same info_hash
+                        Err(_) => {
+                            return PolicyResult::Reject("Internal server error (DB)".to_string());
+                        }
+                    };
+                    if !exists {
+                        info!("New torrent event: {}", event.id);
+                        PolicyResult::Accept
+                    } else {
+                        PolicyResult::Reject("duplicate info_hash".to_string())
+                    }
+                } else {
+                    info!("New {} event: {}", event.kind, event.id);
+                    PolicyResult::Accept
+                }
+            }
+        })
     }
 }
 
@@ -106,8 +146,6 @@ async fn main() -> Result<()> {
         tokio::time::sleep(Duration::from_secs(1)).await;
         info!("Waiting for NDB query...");
     }
-
-    const KINDS: [Kind; 2] = [Kind::Torrent, Kind::TorrentComment];
 
     let mut relay_limits = RelayLimits::default();
     relay_limits
@@ -155,7 +193,7 @@ async fn main() -> Result<()> {
         }
     });
 
-    let policy = AcceptKinds::from(KINDS);
+    let policy = TorrentPolicy::new(ndb.clone());
     let addr = config
         .listen
         .clone()
@@ -193,19 +231,21 @@ async fn main() -> Result<()> {
     });
 
     // spawn peer manager
-    let mut peer_manager = PeerManager::new(filter.clone(), client.clone(), config.clone())?;
-    let _: JoinHandle<Result<()>> = tokio::spawn(async move {
-        peer_manager.start().await?;
+    if config.use_dht.unwrap_or(true) {
+        let mut peer_manager = PeerManager::new(filter.clone(), client.clone(), config.clone())?;
+        let _: JoinHandle<Result<()>> = tokio::spawn(async move {
+            peer_manager.start().await?;
 
-        loop {
-            if let Err(e) = peer_manager.tick().await {
-                error!("Peer manager error: {}", e);
-                break;
+            loop {
+                if let Err(e) = peer_manager.tick().await {
+                    error!("Peer manager error: {}", e);
+                    break;
+                }
+                tokio::time::sleep(Duration::from_secs(60 * 5)).await;
             }
-            tokio::time::sleep(tokio::time::Duration::from_secs(60 * 5)).await;
-        }
-        Ok(())
-    });
+            Ok(())
+        });
+    }
 
     // http server
     let listener = TcpListener::bind(&addr).await?;

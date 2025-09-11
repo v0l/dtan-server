@@ -16,3 +16,6 @@ dht_public_ip: "140.140.140.140"
 
 # Path to DTAN web site build (default www dir)
 web_dir: "../dtan/dist"
+
+# Use DHT to discover other DTAN server peers
+#use_dht: false
