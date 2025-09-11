@@ -61,16 +61,23 @@ pub struct Settings {
 
     /// Enable DHT system for peer connections
     pub use_dht: Option<bool>,
+
+    /// Only allow 1 event per info_hash
+    pub distinct_info_hash: Option<bool>,
 }
 
 #[derive(Debug, Clone)]
 struct TorrentPolicy {
     db: NdbDatabase,
+    distinct_info_hash: bool,
 }
 
 impl TorrentPolicy {
-    pub fn new(db: NdbDatabase) -> Self {
-        Self { db }
+    pub fn new(db: NdbDatabase, distinct: bool) -> Self {
+        Self {
+            db,
+            distinct_info_hash: distinct,
+        }
     }
 }
 
@@ -85,7 +92,7 @@ impl WritePolicy for TorrentPolicy {
                 PolicyResult::Reject("kind not accepted".to_string())
             } else {
                 // check for duplicate by info_hash
-                if event.kind == Kind::Torrent {
+                if event.kind == Kind::Torrent && self.distinct_info_hash {
                     let info_hash = match event.tags.find(TagKind::Custom(Cow::Borrowed("x"))) {
                         Some(info_hash) if info_hash.content().is_some() => {
                             info_hash.content().unwrap()
@@ -193,7 +200,7 @@ async fn main() -> Result<()> {
         }
     });
 
-    let policy = TorrentPolicy::new(ndb.clone());
+    let policy = TorrentPolicy::new(ndb.clone(), config.distinct_info_hash.unwrap_or(false));
     let addr = config
         .listen
         .clone()

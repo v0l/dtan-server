@@ -18,4 +18,7 @@ dht_public_ip: "140.140.140.140"
 web_dir: "../dtan/dist"
 
 # Use DHT to discover other DTAN server peers
-#use_dht: false
+# use_dht: false
+
+# Only accept 1 torrent per info_hash
+# distinct_info_hash: false
