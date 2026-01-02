@@ -22,3 +22,10 @@ web_dir: "../dtan/dist"
 
 # Only accept 1 torrent per info_hash
 # distinct_info_hash: false
+
+# Relay information document
+relay_document:
+  name: DTAN SERVER
+  description: A specialized nostr relay for NIP-35 torrents
+  # pubkey: 63fe6318dc58583cfe16810f86dd09e18bfd76aabc24a0081ce2856f330504ed
+  # contact: info@dtan.xyz

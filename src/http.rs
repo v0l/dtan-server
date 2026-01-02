@@ -7,6 +7,8 @@ use hyper::{Request, Response};
 use hyper_util::rt::TokioIo;
 use log::{error, info};
 use nostr_relay_builder::LocalRelay;
+use nostr_relay_builder::prelude::RelayInformationDocument;
+use nostr_sdk::JsonUtil;
 use sha1::{Digest, Sha1};
 use std::future::Future;
 use std::net::SocketAddr;
@@ -17,14 +19,21 @@ pub struct HttpServer {
     relay: LocalRelay,
     remote: SocketAddr,
     ui_dir: PathBuf,
+    relay_document: RelayInformationDocument,
 }
 
 impl HttpServer {
-    pub fn new(relay: LocalRelay, remote: SocketAddr, ui_dir: PathBuf) -> Self {
+    pub fn new(
+        relay: LocalRelay,
+        remote: SocketAddr,
+        ui_dir: PathBuf,
+        doc: RelayInformationDocument,
+    ) -> Self {
         HttpServer {
             relay,
             remote,
             ui_dir,
+            relay_document: doc,
         }
     }
 }
@@ -87,10 +96,41 @@ impl Service<Request<Incoming>> for HttpServer {
 
         // map request to ui dir
         let web_path = req.uri().path();
-        let dst = if web_path.is_empty() || web_path == "/" {
+        let is_root = web_path.is_empty() || web_path == "/";
+
+        const CT_RELAY_DOC: &str = "application/nostr+json";
+
+        // serve relay document
+        if is_root
+            && let Some(ac) = req.headers().get("accept")
+            && ac == CT_RELAY_DOC
+        {
+            let mut doc = self.relay_document.clone();
+            doc.supported_nips = Some(vec![1, 50, 77]);
+            doc.software = Some("git+https://github.com/v0l/dtan-server".to_string());
+            doc.version = Some("0.1.0".to_string());
+            doc.icon = Some("https://dtan.xyz/logo.png".to_string());
+
+            let json = doc.as_json();
+            return Box::pin(async move {
+                base.status(200)
+                    .header("content-type", CT_RELAY_DOC)
+                    .body(http_body_util::Full::new(Bytes::from_owner(
+                        json.into_bytes(),
+                    )))
+                    .map_err(anyhow::Error::from)
+            });
+        }
+
+        let dst = if is_root {
             self.ui_dir.join("index.html")
         } else {
-            self.ui_dir.join(&web_path[1..])
+            let new_path = self.ui_dir.join(&web_path[1..]);
+            if new_path.exists() {
+                new_path
+            } else {
+                self.ui_dir.join("index.html")
+            }
         };
         if dst.exists() {
             let remote_addr = self.remote.clone();

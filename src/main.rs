@@ -9,9 +9,9 @@ use log::{debug, error, info, warn};
 use nostr_ndb::NdbDatabase;
 use nostr_relay_builder::LocalRelay;
 use nostr_relay_builder::builder::{WritePolicy, WritePolicyResult};
-use nostr_relay_builder::prelude::{Event, RelayMessage};
+use nostr_relay_builder::prelude::{Event, RelayInformationDocument, RelayMessage};
 use nostr_sdk::pool::RelayLimits;
-use nostr_sdk::prelude::{BoxedFuture, GossipOptions, NostrDatabase, SyncProgress};
+use nostr_sdk::prelude::{BoxedFuture, NostrDatabase, SyncProgress};
 use nostr_sdk::{
     Alphabet, Client, ClientOptions, Filter, Kind, RelayPoolNotification, SingleLetterTag,
     SubscribeOptions, SyncOptions, TagKind,
@@ -62,6 +62,9 @@ pub struct Settings {
 
     /// Only allow 1 event per info_hash
     pub distinct_info_hash: Option<bool>,
+
+    /// Relay document
+    pub relay_document: RelayInformationDocument,
 }
 
 #[derive(Debug, Clone)]
@@ -285,6 +288,7 @@ async fn main() -> Result<()> {
             relay.clone(),
             addr,
             config.web_dir.clone().unwrap_or(PathBuf::from("www")),
+            config.relay_document.clone(),
         );
         tokio::spawn(async move {
             if let Err(e) = http1::Builder::new()
