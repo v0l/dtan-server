@@ -6,7 +6,7 @@ use config::Config;
 use hyper::server::conn::http1;
 use hyper_util::rt::TokioIo;
 use log::{debug, error, info, warn};
-use nostr_ndb::NdbDatabase;
+use nostr_lmdb::NostrLmdb;
 use nostr_relay_builder::LocalRelay;
 use nostr_relay_builder::builder::{WritePolicy, WritePolicyResult};
 use nostr_relay_builder::prelude::{Event, RelayInformationDocument, RelayMessage};
@@ -139,16 +139,15 @@ async fn main() -> Result<()> {
         .build()?
         .try_deserialize()?;
 
-    let ndb = NdbDatabase::open(
+    let db = NostrLmdb::open(
         config
             .database_dir
             .clone()
-            .unwrap_or(PathBuf::from("./data"))
-            .to_str()
-            .unwrap(),
-    )?;
+            .unwrap_or(PathBuf::from("./data")),
+    )
+    .await?;
 
-    let ndb: Arc<dyn NostrDatabase> = Arc::new(ndb);
+    let ndb: Arc<dyn NostrDatabase> = Arc::new(db);
 
     // loop until NDB ready
     loop {

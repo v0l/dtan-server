@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-nostr-sdk = { git = "https://github.com/v0l/nostr-sdk", rev = "e79d4791dd39a257c51dcfc1bdc6594cac54a865" }
-nostr-ndb = { git = "https://github.com/v0l/nostr-sdk", rev = "e79d4791dd39a257c51dcfc1bdc6594cac54a865" }
-nostr-relay-builder = { git = "https://github.com/v0l/nostr-sdk", rev = "e79d4791dd39a257c51dcfc1bdc6594cac54a865" }
+nostr-sdk = { git = "https://github.com/v0l/nostr-sdk", rev = "ca93ba9db107a9133a8f03badd8d237b6ef16a84" }
+nostr-lmdb = { git = "https://github.com/v0l/nostr-sdk", rev = "ca93ba9db107a9133a8f03badd8d237b6ef16a84" }
+nostr-relay-builder = { git = "https://github.com/v0l/nostr-sdk", rev = "ca93ba9db107a9133a8f03badd8d237b6ef16a84" }
 log = "0.4"
 config = { version = "0.15", features = ["yaml"] }
 pretty_env_logger = "0.5"
