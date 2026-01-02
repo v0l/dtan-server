@@ -6,19 +6,21 @@ use config::Config;
 use hyper::server::conn::http1;
 use hyper_util::rt::TokioIo;
 use log::{debug, error, info, warn};
-use nostr_relay_builder::builder::{PolicyResult, WritePolicy};
+use nostr_ndb::NdbDatabase;
+use nostr_relay_builder::LocalRelay;
+use nostr_relay_builder::builder::{WritePolicy, WritePolicyResult};
 use nostr_relay_builder::prelude::{Event, RelayMessage};
-use nostr_relay_builder::{LocalRelay, RelayBuilder};
 use nostr_sdk::pool::RelayLimits;
-use nostr_sdk::prelude::{BoxedFuture, NostrDatabase, SyncProgress};
+use nostr_sdk::prelude::{BoxedFuture, GossipOptions, NostrDatabase, SyncProgress};
 use nostr_sdk::{
-    Alphabet, Client, ClientOptions, Filter, Kind, NdbDatabase, RelayPoolNotification,
-    SingleLetterTag, SubscribeOptions, SyncOptions, TagKind,
+    Alphabet, Client, ClientOptions, Filter, Kind, RelayPoolNotification, SingleLetterTag,
+    SubscribeOptions, SyncOptions, TagKind,
 };
 use serde::Deserialize;
 use std::borrow::Cow;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
@@ -64,12 +66,12 @@ pub struct Settings {
 
 #[derive(Debug, Clone)]
 struct TorrentPolicy {
-    db: NdbDatabase,
+    db: Arc<dyn NostrDatabase>,
     distinct_info_hash: bool,
 }
 
 impl TorrentPolicy {
-    pub fn new(db: NdbDatabase, distinct: bool) -> Self {
+    pub fn new(db: Arc<dyn NostrDatabase>, distinct: bool) -> Self {
         Self {
             db,
             distinct_info_hash: distinct,
@@ -82,10 +84,10 @@ impl WritePolicy for TorrentPolicy {
         &'a self,
         event: &'a Event,
         _addr: &SocketAddr,
-    ) -> BoxedFuture<'a, PolicyResult> {
+    ) -> BoxedFuture<'a, WritePolicyResult> {
         Box::pin(async move {
             if !KINDS.contains(&event.kind) && !KINDS_PLUS_K.contains(&event.kind) {
-                PolicyResult::Reject("kind not accepted".to_string())
+                WritePolicyResult::reject("kind not accepted".to_string())
             } else {
                 // check for duplicate by info_hash
                 if event.kind == Kind::Torrent && self.distinct_info_hash {
@@ -93,7 +95,7 @@ impl WritePolicy for TorrentPolicy {
                         Some(info_hash) if info_hash.content().is_some() => {
                             info_hash.content().unwrap()
                         }
-                        _ => return PolicyResult::Reject("Missing 'x' tag".to_string()),
+                        _ => return WritePolicyResult::reject("Missing 'x' tag".to_string()),
                     };
                     let f_info_hash = Filter::new()
                         .kind(Kind::Torrent)
@@ -101,18 +103,20 @@ impl WritePolicy for TorrentPolicy {
                     let exists = match self.db.query(f_info_hash).await {
                         Ok(exists) => !exists.is_empty(), // TODO: actually check if the event is the same info_hash
                         Err(_) => {
-                            return PolicyResult::Reject("Internal server error (DB)".to_string());
+                            return WritePolicyResult::reject(
+                                "Internal server error (DB)".to_string(),
+                            );
                         }
                     };
                     if !exists {
                         info!("New torrent event: {}", event.id);
-                        PolicyResult::Accept
+                        WritePolicyResult::Accept
                     } else {
-                        PolicyResult::Reject("duplicate info_hash".to_string())
+                        WritePolicyResult::reject("duplicate info_hash".to_string())
                     }
                 } else {
                     info!("New {} event: {}", event.kind, event.id);
-                    PolicyResult::Accept
+                    WritePolicyResult::Accept
                 }
             }
         })
@@ -140,6 +144,8 @@ async fn main() -> Result<()> {
             .to_str()
             .unwrap(),
     )?;
+
+    let ndb: Arc<dyn NostrDatabase> = Arc::new(ndb);
 
     // loop until NDB ready
     loop {
@@ -214,13 +220,12 @@ async fn main() -> Result<()> {
         .listen
         .clone()
         .unwrap_or(SocketAddr::new([127, 0, 0, 1].into(), DEFAULT_RELAY_PORT));
-    let relay = RelayBuilder::default()
+    let relay = LocalRelay::builder()
         .database(ndb.clone())
         .addr(addr.ip())
         .port(addr.port())
-        .write_policy(policy);
-
-    let relay = LocalRelay::new(relay).await?;
+        .write_policy(policy)
+        .build();
 
     let client_notification = client.clone();
     let relay_notify = relay.clone();
@@ -228,6 +233,9 @@ async fn main() -> Result<()> {
         while let Ok(msg) = client_notification.notifications().recv().await {
             match msg {
                 RelayPoolNotification::Event { event, .. } => {
+                    if let Err(e) = ndb.save_event(&*event).await {
+                        error!("{}", e);
+                    }
                     relay_notify.notify_event((*event).clone());
                     if let Err(e) = client_notification.send_event(&*event).await {
                         warn!("Error sending event: {:?}", e);

@@ -4,20 +4,21 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-nostr-sdk = { version = "0.43.0", features = ["ndb"] }
-nostr-relay-builder = { version = "0.43.0" }
-log = "0.4.22"
-config = { version = "0.15.4", features = ["yaml"] }
-pretty_env_logger = "0.5.0"
-tokio = { version = "1.42.0", features = ["rt", "rt-multi-thread", "macros", "fs", "signal"] }
-clap = { version = "4.5.23", features = ["derive"] }
-anyhow = "1.0.95"
-serde = { version = "1.0.216", features = ["derive"] }
+nostr-sdk = { git = "https://github.com/v0l/nostr-sdk", rev = "e79d4791dd39a257c51dcfc1bdc6594cac54a865" }
+nostr-ndb = { git = "https://github.com/v0l/nostr-sdk", rev = "e79d4791dd39a257c51dcfc1bdc6594cac54a865" }
+nostr-relay-builder = { git = "https://github.com/v0l/nostr-sdk", rev = "e79d4791dd39a257c51dcfc1bdc6594cac54a865" }
+log = "0.4"
+config = { version = "0.15", features = ["yaml"] }
+pretty_env_logger = "0.5"
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "fs", "signal"] }
+clap = { version = "4.5", features = ["derive"] }
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
 
-hyper = { version = "1.7.0", features = ["server", "http1", "http2"] }
-hyper-util = { version = "0.1.16", features = ["tokio", "http2"] }
-sha1 = "0.10.6"
-base64 = "0.22.1"
-mainline = "5.4.0"
+hyper = { version = "1", features = ["server", "http1", "http2"] }
+hyper-util = { version = "0.1", features = ["tokio", "http2"] }
+sha1 = "0.10"
+base64 = "0.22"
+mainline = "6.0"
 portmapper = { git = "https://github.com/n0-computer/net-tools.git", rev = "d6eee7d7b8830b1b6a0132b386ba15d6a4eb8dc2", default-features = false }
-http-body-util = "0.1.3"
+http-body-util = "0.1"
