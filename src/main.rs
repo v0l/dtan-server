@@ -30,6 +30,8 @@ const KINDS_PLUS_K: [Kind; 2] = [Kind::Comment, Kind::ZapReceipt];
 
 mod http;
 mod peers;
+#[cfg(test)]
+mod tests;
 
 pub const DEFAULT_RELAY_PORT: u16 = 7777;
 
@@ -103,19 +105,25 @@ impl WritePolicy for TorrentPolicy {
                     let f_info_hash = Filter::new()
                         .kind(Kind::Torrent)
                         .custom_tag(SingleLetterTag::from_char('x').unwrap(), info_hash);
-                    let exists = match self.db.query(f_info_hash).await {
-                        Ok(exists) => !exists.is_empty(), // TODO: actually check if the event is the same info_hash
+                    let existing = match self.db.query(f_info_hash).await {
+                        Ok(existing) => existing,
                         Err(_) => {
                             return WritePolicyResult::reject(
                                 "Internal server error (DB)".to_string(),
                             );
                         }
                     };
-                    if !exists {
+                    // Check if it's the SAME event (same id), not just same info_hash
+                    let is_duplicate = existing.iter().any(|e| e.id == event.id);
+                    if is_duplicate {
+                        // Same event, accept it (might be a re-submission)
+                        WritePolicyResult::Accept
+                    } else if !existing.is_empty() {
+                        // Different event with same info_hash - reject as duplicate torrent
+                        WritePolicyResult::reject("duplicate info_hash".to_string())
+                    } else {
                         info!("New torrent event: {}", event.id);
                         WritePolicyResult::Accept
-                    } else {
-                        WritePolicyResult::reject("duplicate info_hash".to_string())
                     }
                 } else {
                     info!("New {} event: {}", event.kind, event.id);
@@ -175,7 +183,11 @@ async fn main() -> Result<()> {
     }
 
     let filter = Filter::new().kinds(KINDS);
+    
+    // Connect to relays first
     client.connect().await;
+    
+    // Subscribe to get real-time events (but don't sync yet)
     client
         .pool()
         .subscribe(filter.clone(), SubscribeOptions::default())
@@ -190,12 +202,21 @@ async fn main() -> Result<()> {
         .subscribe(filter_k.clone().limit(10), SubscribeOptions::default())
         .await?;
 
-    // re-sync with bootstrap relays
+    // re-sync with bootstrap relays - this fetches historical events
     let client_sync = client.clone();
     let filter_sync = filter.clone();
     let filter_k_sync = filter_k.clone();
+    
+    // Track sync state with atomic flags
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let sync_completed = Arc::new(AtomicBool::new(false));
+    let sync_progress_tx = Arc::new(tokio::sync::watch::channel(0).0);
+    
     tokio::spawn(async move {
         let (tx, mut rx) = SyncProgress::channel();
+        let _sync_completed_clone = sync_completed.clone();
+        let sync_progress_tx_clone = sync_progress_tx.clone();
+        
         tokio::spawn(async move {
             while let Ok(_) = rx.changed().await {
                 let x = rx.borrow();
@@ -203,18 +224,32 @@ async fn main() -> Result<()> {
                     "Sync progress: {}/{} ({:.2}%)",
                     x.current,
                     x.total,
-                    x.current as f64 / x.total as f64 * 100.0
+                    if x.total > 0 { x.current as f64 / x.total as f64 * 100.0 } else { 0.0 }
                 );
+                // Update progress channel
+                let _ = sync_progress_tx_clone.send(x.current);
             }
         });
-        info!("Starting sync: {:?}", &filter_sync);
-        let opts = SyncOptions::default().progress(tx);
+        
+        info!("Starting sync for filter: {:?}", &filter_sync);
+        let opts = SyncOptions::default().progress(tx.clone());
         if let Err(e) = client_sync.sync(filter_sync, &opts).await {
-            error!("{}", e);
+            error!("Sync error (filter): {}", e);
+        } else {
+            info!("Sync completed for filter");
         }
-        if let Err(e) = client_sync.sync(filter_k_sync, &opts).await {
-            error!("{}", e);
+        
+        info!("Starting sync for filter_k: {:?}", &filter_k_sync);
+        let opts_k = SyncOptions::default().progress(tx);
+        if let Err(e) = client_sync.sync(filter_k_sync, &opts_k).await {
+            error!("Sync error (filter_k): {}", e);
+        } else {
+            info!("Sync completed for filter_k");
         }
+        
+        // Mark sync as completed
+        sync_completed.store(true, Ordering::SeqCst);
+        info!("Initial sync completed");
     });
 
     let policy = TorrentPolicy::new(ndb.clone(), config.distinct_info_hash.unwrap_or(false));
@@ -231,12 +266,20 @@ async fn main() -> Result<()> {
 
     let client_notification = client.clone();
     let relay_notify = relay.clone();
+    let ndb_clone = ndb.clone();
     tokio::spawn(async move {
+        let mut event_count = 0;
         while let Ok(msg) = client_notification.notifications().recv().await {
             match msg {
                 RelayPoolNotification::Event { event, .. } => {
-                    if let Err(e) = ndb.save_event(&*event).await {
-                        error!("{}", e);
+                    event_count += 1;
+                    // Only save if not already in DB (to avoid race with sync)
+                    // Check if event exists before saving
+                    if let Err(e) = ndb_clone.save_event(&*event).await {
+                        // If it's a duplicate key error, that's fine - event already exists
+                        if !e.to_string().contains("duplicate") {
+                            error!("Error saving event {}: {}", event.id, e);
+                        }
                     }
                     relay_notify.notify_event((*event).clone());
                     if let Err(e) = client_notification.send_event(&*event).await {
@@ -246,8 +289,12 @@ async fn main() -> Result<()> {
                 RelayPoolNotification::Message { message, .. } => match message {
                     RelayMessage::Event { .. } => {}
                     RelayMessage::Ok { .. } => {}
-                    RelayMessage::EndOfStoredEvents(_) => {}
-                    RelayMessage::Notice(_) => {}
+                    RelayMessage::EndOfStoredEvents(relay_url) => {
+                        info!("End of stored events from {}", relay_url);
+                    }
+                    RelayMessage::Notice(notice) => {
+                        info!("Notice: {}", notice);
+                    }
                     RelayMessage::Closed { .. } => {}
                     RelayMessage::Auth { .. } => {}
                     RelayMessage::Count { .. } => {}
@@ -257,6 +304,7 @@ async fn main() -> Result<()> {
                 RelayPoolNotification::Shutdown => {}
             }
         }
+        info!("Total events received: {}", event_count);
     });
 
     // spawn peer manager

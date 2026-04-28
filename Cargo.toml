@@ -22,3 +22,7 @@ base64 = "0.22"
 mainline = "6.0"
 portmapper = { git = "https://github.com/n0-computer/net-tools.git", rev = "d6eee7d7b8830b1b6a0132b386ba15d6a4eb8dc2", default-features = false }
 http-body-util = "0.1"
+
+[dev-dependencies]
+tempfile = "3"
+futures = "0.3"
