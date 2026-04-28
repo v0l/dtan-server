@@ -1,7 +1,7 @@
-FROM node:trixie AS ui_builder
+FROM oven/bun AS ui_builder
 WORKDIR /src
 RUN git clone https://github.com/v0l/dtan.git && \
-    cd dtan && yarn && VITE_DTAN_SERVER=1 yarn build
+    cd dtan && bun install && VITE_DTAN_SERVER=1 bun run build
 
 FROM rust:trixie AS build
 WORKDIR /src
