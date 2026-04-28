@@ -1,6 +1,7 @@
 FROM oven/bun AS ui_builder
 WORKDIR /src
-RUN git clone https://github.com/v0l/dtan.git && \
+RUN apt-get update && apt-get install -y git && \
+    git clone https://github.com/v0l/dtan.git && \
     cd dtan && bun install && VITE_DTAN_SERVER=1 bun run build
 
 FROM rust:trixie AS build
