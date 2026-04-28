@@ -25,7 +25,7 @@ use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
-const KINDS: [Kind; 2] = [Kind::Torrent, Kind::TorrentComment];
+const KINDS: [Kind; 4] = [Kind::Torrent, Kind::TorrentComment, Kind::Metadata, Kind::RelayList];
 const KINDS_PLUS_K: [Kind; 2] = [Kind::Comment, Kind::ZapReceipt];
 
 mod http;
@@ -178,7 +178,7 @@ async fn main() -> Result<()> {
     client.connect().await;
     client
         .pool()
-        .subscribe(filter.clone().limit(10), SubscribeOptions::default())
+        .subscribe(filter.clone(), SubscribeOptions::default())
         .await?;
 
     let filter_k = Filter::new().kinds(KINDS_PLUS_K).custom_tag(
@@ -193,7 +193,7 @@ async fn main() -> Result<()> {
     // re-sync with bootstrap relays
     let client_sync = client.clone();
     let filter_sync = filter.clone();
-    let filter_k_sync = filter.clone();
+    let filter_k_sync = filter_k.clone();
     tokio::spawn(async move {
         let (tx, mut rx) = SyncProgress::channel();
         tokio::spawn(async move {
