@@ -32,6 +32,7 @@ jobs:
         with:
           context: .
           push: ${{ github.event_name != 'pull_request' }}
+          platforms: linux/amd64,linux/arm64
           tags: |
             voidic/dtan-server:latest
             ${{ startsWith(github.ref, 'refs/tags/') && format('voidic/dtan-server:{0}', github.ref_name) || '' }}
