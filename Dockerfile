@@ -12,7 +12,7 @@ RUN cargo install --path . --root /app/build
 FROM debian:trixie-slim
 WORKDIR /app
 COPY --from=build /app/build .
-COPY --from=ui_builder /src/dtan/dist www
+COPY --from=ui_builder /src/dtan/dist/client www
 ## Install runtime libs
 RUN apt update && \
     apt install -y \
